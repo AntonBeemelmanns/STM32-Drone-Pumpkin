@@ -149,17 +149,14 @@ void renderAnimation(){
  * Sends controller inputs to serial port
  */
 void sendData() {
-    // ignore function if no device at serial port
-    if(myPort == null){
-      return;
-    }
     // read killswitch
     if(device.getButton("kill_switch").pressed()){
       killSwitch = true;
       println("!!! EMERGENCY KILL ALL MOTORS !!!");
     }
     
-    if(killSwitch){
+    // execute killswitch
+    if(killSwitch && myPort != null){
       myPort.write("0,0,0,0,0\n");
       return;
     }
@@ -173,6 +170,11 @@ void sendData() {
     }
     if(device.getButton("mode_switch").pressed()){
       mode = 1;
+    }
+    
+    // dont send data to port if no device connected
+    if(myPort == null){
+      return;
     }
     
     // Output string to serial port
