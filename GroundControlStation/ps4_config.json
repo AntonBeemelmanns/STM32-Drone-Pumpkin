@@ -1,0 +1,7 @@
+drone controller
+roll	stick to roll	3	SLIDER	X-Achse	0	1.0	0.0
+pitch	stick to pitch	3	SLIDER	Y-Achse	0	1.0	0.0
+yaw	stick to yaw	3	SLIDER	Z-Achse	0	1.0	0.0
+arm_button	button to arm	1	BUTTON	Taste 1	0	0.0	0.0
+mode_switch	button to switch mode	1	BUTTON	Taste 5	0	0.0	0.0
+kill_switch	button to kill motors	1	BUTTON	Taste 0	0	0.0	0.0

@@ -23,7 +23,8 @@
 #include "usart.h"
 #include "gpio.h"
 
-#include <string.h>
+#include <math.h>   // Für sinf und cosf
+#include <stdio.h>  // Für sprintf
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -48,6 +49,11 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
+
+float pitch = 0.0f;
+float roll = 0.0f;
+float yaw = 0.0f;
+char msg[100];
 
 /* USER CODE END PV */
 
@@ -102,11 +108,23 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  char msg[] = "Drohne bereit zum Start!\r\n";
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, strlen(msg), 100);
+	  // Simulation: Sinus-Werte basierend auf der Systemzeit (HAL_GetTick)
+	  // 0.002f steuert die Geschwindigkeit der Bewegung
+	  pitch = 30.0f * sinf(HAL_GetTick() * 0.002f);  // Neigung +/- 30 Grad
+	  roll  = 20.0f * cosf(HAL_GetTick() * 0.0015f); // Rollen +/- 20 Grad
+	  yaw  += 0.5f;                                  // Langsame Drehung um die Hochachse
 
-	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-	  HAL_Delay(1000);
+	  if(yaw > 360.0f) yaw = 0.0f; // Reset nach voller Drehung
+
+	  // Daten im CSV-Format aufbereiten: "Pitch,Roll,Yaw\n"
+	  // Das \n am Ende ist wichtig für Processing (bufferUntil)
+	  int len = sprintf(msg, "%.2f,%.2f,%.2f\n", pitch, roll, yaw);
+
+	  // Über UART senden
+	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
+
+	  // Kurze Pause, damit der Serial-Buffer nicht überläuft (50 FPS)
+	  HAL_Delay(20);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
