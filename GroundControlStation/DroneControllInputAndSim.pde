@@ -4,7 +4,7 @@
  * Uses GameControlPlus for HID interfacing and P3D for rendering.
  * * @author  Anton Beemelmanns
  * @version 1.2
- * @date    2026-04-21
+ * @date    2026-04-22
  */
 
 import org.gamecontrolplus.*;
@@ -157,7 +157,7 @@ void sendData() {
     
     // execute killswitch
     if(killSwitch && myPort != null){
-      myPort.write("0,0,0,0,0\n");
+      myPort.write("100,100,100,100,100\n");      
       return;
     }
     
@@ -178,6 +178,7 @@ void sendData() {
     }
     
     // Output string to serial port
-    String dataString = int(pitch) + "," + int(roll) + "," + int(yaw) + "," + arm + "," + mode + "\n";
+    String dataString = str(int(pitch)) + "," + str(int(roll)) + "," + str(int(yaw)) + "," + str(arm) + "," + str(mode) + "\n";
+    println(dataString);
     myPort.write(dataString);
 }
