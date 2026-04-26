@@ -1,8 +1,8 @@
 /**
  * Drone Ground Control Station (GCS)
- * * Visualizes remote control inputs in a 3D environment and passes control string to serial port.
+ * Visualizes remote control inputs in a 3D environment and passes control string to serial port.
  * Uses GameControlPlus for HID interfacing and P3D for rendering.
- * * @author  Anton Beemelmanns
+ * @author  Anton Beemelmanns
  * @version 1.2
  * @date    2026-04-22
  */
