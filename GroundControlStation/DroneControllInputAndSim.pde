@@ -32,7 +32,7 @@ void setup(){
   
   if(ports.length > 0){
     try{
-      String portName = Serial.list()[0];
+      String portName = Serial.list()[1];
       myPort = new Serial(this, portName, 115200);
       println("Serial Port " + portName + " opened successfully.");
     }
