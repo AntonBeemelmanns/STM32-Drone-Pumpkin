@@ -18,17 +18,13 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "i2c.h"
-#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
-#include <math.h>   // Für sinf und cosf
-#include <stdio.h>  // Für sprintf
-
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,10 +46,22 @@
 
 /* USER CODE BEGIN PV */
 
-float pitch = 0.0f;
-float roll = 0.0f;
-float yaw = 0.0f;
-char msg[100];
+uint8_t incoming; // Speicher für das Byte vom Nano
+
+struct DataPacket {
+    int16_t pitch;
+    int16_t roll;
+    int16_t yaw;
+    int16_t arm;
+    int16_t mode;
+} dataPacket;
+
+char rx_data;          // Einzelnes empfangenes Zeichen
+char line_buffer[64];  // Speicher für die komplette Zeile
+int ind = 0;         // Aktuelle Position im Buffer
+
+
+int buffer_index = 0;
 
 /* USER CODE END PV */
 
@@ -61,10 +69,22 @@ char msg[100];
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+#ifdef __GNUC__
+#define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+#else
+#define PUTCHAR_PROTOTYPE int fputc(int ch, FILE *f)
+#endif
+
+PUTCHAR_PROTOTYPE
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)&ch, 1, HAL_MAX_DELAY);
+  return ch;
+}
 
 /* USER CODE END 0 */
 
@@ -97,10 +117,10 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  MX_I2C1_Init();
-  MX_TIM1_Init();
+  MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
+
 
   /* USER CODE END 2 */
 
@@ -108,23 +128,30 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  // Simulation: Sinus-Werte basierend auf der Systemzeit (HAL_GetTick)
-	  // 0.002f steuert die Geschwindigkeit der Bewegung
-	  pitch = 30.0f * sinf(HAL_GetTick() * 0.002f);  // Neigung +/- 30 Grad
-	  roll  = 20.0f * cosf(HAL_GetTick() * 0.0015f); // Rollen +/- 20 Grad
-	  yaw  += 0.5f;                                  // Langsame Drehung um die Hochachse
 
-	  if(yaw > 360.0f) yaw = 0.0f; // Reset nach voller Drehung
+	  if (HAL_UART_Receive(&huart1, &incoming, 1, 10) == HAL_OK)
+	      {
+	          // Jedes Zeichen im Buffer sammeln (außer das Zeilenende)
+	          if (incoming != '\n' && incoming != '\r')
+	          {
+	              if (buffer_index < 63) {
+	                  line_buffer[buffer_index++] = incoming;
+	              }
+	          }
 
-	  // Daten im CSV-Format aufbereiten: "Pitch,Roll,Yaw\n"
-	  // Das \n am Ende ist wichtig für Processing (bufferUntil)
-	  int len = sprintf(msg, "%.2f,%.2f,%.2f\n", pitch, roll, yaw);
+	          if (incoming == '\n')
+	          {
+	              line_buffer[buffer_index] = '\0'; // String Ende markieren
 
-	  // Über UART senden
-	  HAL_UART_Transmit(&huart2, (uint8_t*)msg, len, HAL_MAX_DELAY);
+	              // DEIN CODE (unverändert in der Logik):
+	              printf("Datenpaket erhalten! Werte: %s\r\n", line_buffer);
+	              HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-	  // Kurze Pause, damit der Serial-Buffer nicht überläuft (50 FPS)
-	  HAL_Delay(20);
+	              // Buffer für das nächste Paket leeren
+	              buffer_index = 0;
+	          }
+	      }
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -180,6 +207,7 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+
 
 /* USER CODE END 4 */
 
