@@ -1,0 +1,17 @@
+# STM32 Build
+Debug/
+Release/
+*.elf
+*.bin
+*.map
+*.list
+*.o
+*.d
+*.su
+*.cyclo
+
+# IDE
+.settings/
+.project
+.cproject
+.mxproject
