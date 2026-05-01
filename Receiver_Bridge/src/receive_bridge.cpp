@@ -11,6 +11,7 @@ struct DataPacket {
 } dataPacket;
 
 RF24 radio(9, 10);
+
 const byte address[6] = "DRN01";
 
 void setup() {
