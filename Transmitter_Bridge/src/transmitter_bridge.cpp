@@ -5,7 +5,7 @@
  * via UART (USB), parses the telemetry values, and transmits them wirelessly to the drone.
  * 
  * Hardware: Arduino Nano, NRF24L01+
- * Library: RF24 by TMRh20 (v1.4.x or later) - https://github.com/nRF24/RF24
+ * Library: RF24 by TMRh20 (v1.4.7) - https://github.com/nRF24/RF24
  * 
  * @author    Anton Beemelmanns
  * @version   1.2
