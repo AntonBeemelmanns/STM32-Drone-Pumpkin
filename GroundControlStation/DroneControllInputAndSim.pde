@@ -85,14 +85,17 @@ void draw(){
   }
      
   if(abs(rawR) > threshold){
-    roll = -rawR * 45;
+    roll = rawR * 45;
   }
   else{
     roll = 0;
   }
   
   if (abs(rawY) > threshold) {
-    yaw -= rawY * 2; 
+    yaw = rawY * 100; 
+  }
+  else{
+    yaw = 0;
   }
   
   renderAnimation();
@@ -112,9 +115,9 @@ void renderAnimation(){
   scale(1.8); 
 
   // Apply rotations
-  rotateY(radians(yaw) + PI); 
+  rotateY(radians(-yaw) + PI); 
   rotateX(radians(pitch));
-  rotateZ(radians(roll));
+  rotateZ(radians(-roll));
   
   // Render the drone body
   stroke(255, 30); 
