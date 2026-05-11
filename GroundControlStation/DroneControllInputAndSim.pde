@@ -3,8 +3,8 @@
  * Visualizes remote control inputs in a 3D environment and passes control string to serial port.
  * Uses GameControlPlus for HID interfacing and P3D for rendering.
  * @author  Anton Beemelmanns
- * @version 1.2
- * @date    2026-04-22
+ * @version 1.3
+ * @date    2026-05-11
  */
 
 import org.gamecontrolplus.*;
