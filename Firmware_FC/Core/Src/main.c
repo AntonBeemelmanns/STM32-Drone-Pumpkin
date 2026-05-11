@@ -60,8 +60,16 @@ struct DataPacket {
 char rx_data;          // Einzelnes empfangenes Zeichen
 char line_buffer[64];  // Speicher für die komplette Zeile
 
-
 int buffer_index = 0;
+
+
+uint8_t buffer[14];
+int16_t accel_x, accel_y, accel_z;
+int16_t gyro_x, gyro_y, gyro_z;
+
+float gyro_z_ds;
+
+uint32_t debug_counter = 0;
 
 /* USER CODE END PV */
 
@@ -106,6 +114,7 @@ int main(void)
 
   /* USER CODE BEGIN Init */
 
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -122,6 +131,8 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
+  uint8_t power_mgmt = 0;
+  HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x6B, 1, &power_mgmt, 1, 100);
 
   /* USER CODE END 2 */
 
@@ -144,13 +155,34 @@ int main(void)
 	  	  	              line_buffer[buffer_index] = '\0'; // String Ende markieren
 
 	  	  	              // DEIN CODE (unverändert in der Logik):
-	  	  	              printf("Control Values: %s\r\n", line_buffer);
+	  	  	              //printf("Control Values: %s\r\n", line_buffer);
 	  	  	              HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
 	  	  	              // Buffer für das nächste Paket leeren
 	  	  	              buffer_index = 0;
 	  	  	          }
-	  }
+	  	  	      }
+
+	  if (HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10) == HAL_OK)
+	        {
+	            // Rohdaten extrahieren
+	            accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
+	            // ... (Rest wie bei dir)
+	            gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
+
+	            gyro_z_ds = gyro_z / 131.0;
+
+	            // --- Debug Print (nur alle 20 Durchläufe = ca. alle 200ms) ---
+	            debug_counter++;
+	            if (debug_counter >= 20)
+	            {
+	                // Wir nutzen \r (Carriage Return) statt \n, damit es in einer Zeile bleibt (optional)
+	                printf("GyroZ: %.2f | AccelX: %d\r\n", gyro_z_ds, accel_x);
+	                debug_counter = 0;
+	            }
+	        }
+
+	    HAL_Delay(10); // Kurze Pause, damit der Bus nicht glüht (später per Timer lösen)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
