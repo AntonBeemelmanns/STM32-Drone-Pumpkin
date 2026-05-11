@@ -18,6 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
+#include "i2c.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -118,6 +119,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
 
@@ -127,29 +129,31 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-
 	  if (HAL_UART_Receive(&huart1, &incoming, 1, 10) == HAL_OK)
-	  	      {
-	  	          // Jedes Zeichen im Buffer sammeln (außer das Zeilenende)
-	  	          if (incoming != '\n' && incoming != '\r')
-	  	          {
-	  	              if (buffer_index < 63) {
-	  	                  line_buffer[buffer_index++] = incoming;
-	  	              }
-	  	          }
+	  	  	      {
+	  	  	          // Jedes Zeichen im Buffer sammeln (außer das Zeilenende)
+	  	  	          if (incoming != '\n' && incoming != '\r')
+	  	  	          {
+	  	  	              if (buffer_index < 63) {
+	  	  	                  line_buffer[buffer_index++] = incoming;
+	  	  	              }
+	  	  	          }
 
-	  	          if (incoming == '\n')
-	  	          {
-	  	              line_buffer[buffer_index] = '\0'; // String Ende markieren
+	  	  	          if (incoming == '\n')
+	  	  	          {
+	  	  	              line_buffer[buffer_index] = '\0'; // String Ende markieren
 
-	  	              // DEIN CODE (unverändert in der Logik):
-	  	              printf("Control Values: %s\r\n", line_buffer);
-	  	              HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+	  	  	              // DEIN CODE (unverändert in der Logik):
+	  	  	              printf("Control Values: %s\r\n", line_buffer);
+	  	  	              HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-	  	              // Buffer für das nächste Paket leeren
-	  	              buffer_index = 0;
-	  	          }
+	  	  	              // Buffer für das nächste Paket leeren
+	  	  	              buffer_index = 0;
+	  	  	          }
 	  }
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
 }
