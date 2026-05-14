@@ -193,15 +193,15 @@ int main(void)
 
 	          // 4. DER KOMPLEMENTÄRFILTER
 	          // 98% Vertrauen in das integrierte Gyro-Signal, 2% Korrektur durch Accel
-	          filtered_pitch = 0.99f * (filtered_pitch + gyro_x_ds * dt) + 0.01f * accel_pitch;
-	          filtered_roll  = 0.99f * (filtered_roll  + gyro_y_ds * dt) + 0.01f * accel_roll;
+	          filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
+	          filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
 
 	          // Yaw hat keine absolute Referenz (außer Kompass), daher nur Integration + Drift-Risiko
 	          // Oder wir nutzen hier nur die Rate (gyro_z_ds) für den PID, wie besprochen.
 
 	          // --- Debug Print ---
 	          debug_counter++;
-	          if (debug_counter >= 2)
+	          if (debug_counter >= 1)
 	          {
 	        	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
 	              debug_counter = 0;
