@@ -26,6 +26,7 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -70,6 +71,13 @@ int16_t gyro_x, gyro_y, gyro_z;
 float gyro_z_ds;
 
 uint32_t debug_counter = 0;
+
+
+float accel_pitch, accel_roll;
+float filtered_pitch, filtered_roll;
+float gyro_x_ds, gyro_y_ds; // Grad pro Sekunde für X und Y
+
+float dt = 0.01f; // 10ms Loop-Zeit (da HAL_Delay(10) am Ende steht)
 
 /* USER CODE END PV */
 
@@ -164,25 +172,43 @@ int main(void)
 	  	  	      }
 
 	  if (HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10) == HAL_OK)
-	        {
-	            // Rohdaten extrahieren
-	            accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
-	            // ... (Rest wie bei dir)
-	            gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
+	      {
+	          // 1. Rohdaten extrahieren
+	          accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
+	          accel_y = (int16_t)(buffer[2] << 8 | buffer[3]);
+	          accel_z = (int16_t)(buffer[4] << 8 | buffer[5]);
+	          gyro_x  = (int16_t)(buffer[8] << 8 | buffer[9]);
+	          gyro_y  = (int16_t)(buffer[10] << 8 | buffer[11]);
+	          gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
 
-	            gyro_z_ds = gyro_z / 131.0;
+	          // 2. Umrechnen in physikalische Einheiten
+	          gyro_x_ds = gyro_x / 131.0f;
+	          gyro_y_ds = gyro_y / 131.0f;
+	          gyro_z_ds = gyro_z / 131.0f;
 
-	            // --- Debug Print (nur alle 20 Durchläufe = ca. alle 200ms) ---
-	            debug_counter++;
-	            if (debug_counter >= 20)
-	            {
-	                // Wir nutzen \r (Carriage Return) statt \n, damit es in einer Zeile bleibt (optional)
-	                printf("GyroZ: %.2f | AccelX: %d\r\n", gyro_z_ds, accel_x);
-	                debug_counter = 0;
-	            }
-	        }
+	          // 3. Winkel aus Beschleunigungssensor (Referenz für "unten")
+	          //atan2 liefert Bogenmaß, daher * 180 / PI
+	          accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
+	          accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
 
-	    HAL_Delay(10); // Kurze Pause, damit der Bus nicht glüht (später per Timer lösen)
+	          // 4. DER KOMPLEMENTÄRFILTER
+	          // 98% Vertrauen in das integrierte Gyro-Signal, 2% Korrektur durch Accel
+	          filtered_pitch = 0.99f * (filtered_pitch + gyro_x_ds * dt) + 0.01f * accel_pitch;
+	          filtered_roll  = 0.99f * (filtered_roll  + gyro_y_ds * dt) + 0.01f * accel_roll;
+
+	          // Yaw hat keine absolute Referenz (außer Kompass), daher nur Integration + Drift-Risiko
+	          // Oder wir nutzen hier nur die Rate (gyro_z_ds) für den PID, wie besprochen.
+
+	          // --- Debug Print ---
+	          debug_counter++;
+	          if (debug_counter >= 2)
+	          {
+	        	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+	              debug_counter = 0;
+	          }
+	      }
+
+	      HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
