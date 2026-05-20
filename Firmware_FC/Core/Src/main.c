@@ -48,36 +48,36 @@
 
 /* USER CODE BEGIN PV */
 
-uint8_t incoming; // Speicher für das Byte vom Nano
+// -- Define Variables for RF Connection --
 
-struct DataPacket {
+uint8_t incoming;	// Stores incoming data from Receiver Bridge
+
+char line_buffer[64];	// Stores complete line from Receiver Bridge
+int buffer_index = 0;	// Index in line_buffer
+
+struct DataPacket {  // datatype for controll values
     int16_t pitch;
     int16_t roll;
     int16_t yaw;
     int16_t arm;
     int16_t mode;
-} dataPacket;
+}controlInput;
 
-char rx_data;          // Einzelnes empfangenes Zeichen
-char line_buffer[64];  // Speicher für die komplette Zeile
+// -- Define Variables for reading IMU --
 
-int buffer_index = 0;
+uint8_t buffer[14];	// Stores incoming data from IMU
+int16_t accel_x, accel_y, accel_z;	// Raw Data
+int16_t gyro_x, gyro_y, gyro_z;	// Raw Data
 
-
-uint8_t buffer[14];
-int16_t accel_x, accel_y, accel_z;
-int16_t gyro_x, gyro_y, gyro_z;
-
-float gyro_z_ds;
-
-uint32_t debug_counter = 0;
+float gyro_x_ds, gyro_y_ds, gyro_z_ds;	// Gyro rate of change per second
+float accel_pitch, accel_roll;	// calculated angles
+float filtered_pitch, filtered_roll;	// filtered angles
 
 
-float accel_pitch, accel_roll;
-float filtered_pitch, filtered_roll;
-float gyro_x_ds, gyro_y_ds; // Grad pro Sekunde für X und Y
+float dt = 0.01f; // Duration of loop for angle integration
 
-float dt = 0.01f; // 10ms Loop-Zeit (da HAL_Delay(10) am Ende steht)
+
+uint32_t debug_counter = 0;	// Determine debugging output rate
 
 /* USER CODE END PV */
 
@@ -139,6 +139,7 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
+  // Initialize IMU
   uint8_t power_mgmt = 0;
   HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x6B, 1, &power_mgmt, 1, 100);
 
@@ -146,69 +147,68 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
+  while(1)
   {
-	  if (HAL_UART_Receive(&huart1, &incoming, 1, 10) == HAL_OK)
-	  	  	      {
-	  	  	          // Jedes Zeichen im Buffer sammeln (außer das Zeilenende)
-	  	  	          if (incoming != '\n' && incoming != '\r')
-	  	  	          {
-	  	  	              if (buffer_index < 63) {
-	  	  	                  line_buffer[buffer_index++] = incoming;
-	  	  	              }
-	  	  	          }
+	  // -- Receive data from receiver bridge --
+	  if(HAL_UART_Receive(&huart1, &incoming, 1, 0) == HAL_OK)
+	  {
+	  	  // Collect data in line_buffer exept for end of line
+		  if (incoming != '\n' && incoming != '\r')
+	  	  {
+			  if (buffer_index < 63)	// Check for space in line_buffer
+			  {
+				  line_buffer[buffer_index++] = incoming;
+	  	  	  }
+	  	  }
 
-	  	  	          if (incoming == '\n')
-	  	  	          {
-	  	  	              line_buffer[buffer_index] = '\0'; // String Ende markieren
+		  // Detect end of line
+	  	  if (incoming == '\n')
+	  	  {
+	  		  line_buffer[buffer_index] = '\0'; // Mark end of string
+	  	  	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);	// Toggle led to showcase received data
 
-	  	  	              // DEIN CODE (unverändert in der Logik):
-	  	  	              //printf("Control Values: %s\r\n", line_buffer);
-	  	  	              HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+	  	  	  buffer_index = 0;	// Reset buffer_index for next incoming data
+	  	  }
+	  }
 
-	  	  	              // Buffer für das nächste Paket leeren
-	  	  	              buffer_index = 0;
-	  	  	          }
-	  	  	      }
-
+	  // -- Receive data from IMU --
 	  if (HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10) == HAL_OK)
-	      {
-	          // 1. Rohdaten extrahieren
-	          accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
-	          accel_y = (int16_t)(buffer[2] << 8 | buffer[3]);
-	          accel_z = (int16_t)(buffer[4] << 8 | buffer[5]);
-	          gyro_x  = (int16_t)(buffer[8] << 8 | buffer[9]);
-	          gyro_y  = (int16_t)(buffer[10] << 8 | buffer[11]);
-	          gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
+	  {
+	      // Extract raw data from IMU
+		  accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
+	      accel_y = (int16_t)(buffer[2] << 8 | buffer[3]);
+	      accel_z = (int16_t)(buffer[4] << 8 | buffer[5]);
+	      gyro_x  = (int16_t)(buffer[8] << 8 | buffer[9]);
+	      gyro_y  = (int16_t)(buffer[10] << 8 | buffer[11]);
+	      gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
 
-	          // 2. Umrechnen in physikalische Einheiten
-	          gyro_x_ds = gyro_x / 131.0f;
-	          gyro_y_ds = gyro_y / 131.0f;
-	          gyro_z_ds = gyro_z / 131.0f;
+	      // Convert raw values to physical unit -> Degrees/Second
+	      gyro_x_ds = gyro_x / 131.0f;
+	      gyro_y_ds = gyro_y / 131.0f;
+	      gyro_z_ds = gyro_z / 131.0f;
 
-	          // 3. Winkel aus Beschleunigungssensor (Referenz für "unten")
-	          //atan2 liefert Bogenmaß, daher * 180 / PI
-	          accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
-	          accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
+	      // Calculate angle of pitch and roll from accelerometer and convert to degrees
+	      accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
+	      accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
 
-	          // 4. DER KOMPLEMENTÄRFILTER
-	          // 98% Vertrauen in das integrierte Gyro-Signal, 2% Korrektur durch Accel
-	          filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
-	          filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
+	      // Filter/Fuse values with complementary filter (tune here)
+	      filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
+	      filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
 
-	          // Yaw hat keine absolute Referenz (außer Kompass), daher nur Integration + Drift-Risiko
-	          // Oder wir nutzen hier nur die Rate (gyro_z_ds) für den PID, wie besprochen.
+	      // No absolute value for yaw, only rate of change from gyro is used
+	      // due to risk of integration error
+	  }
 
-	          // --- Debug Print ---
-	          debug_counter++;
-	          if (debug_counter >= 1)
-	          {
-	        	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
-	              debug_counter = 0;
-	          }
-	      }
+	  // -- Debug Print (enable only when debugging!) --
+	  debug_counter++;
+	  if (debug_counter >= 1)
+	  {
+		  //printf(line_buffer);
+	  	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+	  	  debug_counter = 0;
+	  }
 
-	      HAL_Delay(10);
+	  HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
