@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "i2c.h"
+#include "tim.h"
 #include "usart.h"
 #include "gpio.h"
 
@@ -75,6 +76,26 @@ float filtered_pitch, filtered_roll;	// Filtered angles
 
 float dt = 0.01f; // Duration of loop for angle integration
 
+// -- Define PID Variables --
+
+struct PID_Config {
+	float kp;
+	float ki;
+	float kd;
+	float integral;
+	float lastError;
+};
+
+// Tuning values for coefficients
+struct PID_Config pid_pitch = {1.2f, 0.05f, 0.1f, 0.0f, 0.0f};
+struct PID_Config pid_roll  = {1.2f, 0.05f, 0.1f, 0.0f, 0.0f};
+struct PID_Config pid_yaw   = {2.0f, 0.02f, 0.0f, 0.0f, 0.0f};
+
+// Output values for ESC
+volatile float pid_out_pitch = 0.0f;
+volatile float pid_out_roll  = 0.0f;
+volatile float pid_out_yaw   = 0.0f;
+
 
 // -- Define Debugging Variables --
 
@@ -88,6 +109,7 @@ void SystemClock_Config(void);
 
 void Read_RF_Receiver(void);
 HAL_StatusTypeDef Read_IMU(void);
+void Calculate_PID(void);
 
 /* USER CODE END PFP */
 
@@ -140,11 +162,15 @@ int main(void)
   MX_USART1_UART_Init();
   MX_USART2_UART_Init();
   MX_I2C1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
   // Initialize IMU
   uint8_t power_mgmt = 0;
   HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x6B, 1, &power_mgmt, 1, 100);
+
+  // Initialize timer interrupt
+  HAL_TIM_Base_Start_IT(&htim6);
 
   /* USER CODE END 2 */
 
@@ -155,19 +181,7 @@ int main(void)
 	  // Read data from receiver bridge
 	  Read_RF_Receiver();
 
-	  // Read data from IMU
-	  if (Read_IMU() == HAL_OK)
-	  {
-	      // PID controll loop
-	      //Calculate_PID();
-
-	      // Controll Motors
-	      // Update_Motors();
-	  }
-
-
 	  // -- Debug Print (enable only when debugging!) --
-	  debug_counter++;
 	  if (debug_counter >= 1)
 	  {
 		  //printf(line_buffer);
@@ -176,7 +190,6 @@ int main(void)
 	  	  debug_counter = 0;
 	  }
 
-	  HAL_Delay(10);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -233,6 +246,25 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+/**
+  * @brief  Timer interrupt executed every 10 ms for IMU reading and PID calculation
+  * @retval None
+  */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    // Check if tim6 caused interrupt
+    if (htim->Instance == TIM6)
+    {
+        // Read IMU data
+        if (Read_IMU() == HAL_OK)
+        {
+            // Calculate PID value for motor control
+            Calculate_PID();
+
+            debug_counter++;
+        }
+    }
+}
 
 /**
   * @brief  Reads control values from receiver bridge
@@ -279,7 +311,7 @@ void Read_RF_Receiver(void)
 HAL_StatusTypeDef Read_IMU(void)
 {
 	// -- Receive data from IMU --
-    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10);
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 5);
 
     if (status == HAL_OK)
     {
@@ -308,6 +340,48 @@ HAL_StatusTypeDef Read_IMU(void)
 	    // due to risk of integration error
     }
     return status;
+}
+
+
+/**
+  * @brief  Calculates outputs for ESC using PID control
+  * @retval None
+  */
+void Calculate_PID(void)
+{
+    // --- Pitch ---
+    float error_pitch = (float)controlInput.pitch - filtered_pitch;
+    float p_term_pitch = pid_pitch.kp * error_pitch;
+
+    pid_pitch.integral += error_pitch * dt;
+    if (pid_pitch.integral > 400.0f)  pid_pitch.integral = 400.0f; // Anti-Windup
+    if (pid_pitch.integral < -400.0f) pid_pitch.integral = -400.0f;
+
+    float d_term_pitch = pid_pitch.kd * (error_pitch - pid_pitch.lastError) / dt;
+    pid_out_pitch = p_term_pitch + (pid_pitch.ki * pid_pitch.integral) + d_term_pitch;
+    pid_pitch.lastError = error_pitch;
+
+    // --- Roll ---
+    float error_roll = (float)controlInput.roll - filtered_roll;
+    float p_term_roll = pid_roll.kp * error_roll;
+
+    pid_roll.integral += error_roll * dt;
+    if (pid_roll.integral > 400.0f)  pid_roll.integral = 400.0f; // Anti-Windup
+    if (pid_roll.integral < -400.0f) pid_roll.integral = -400.0f;
+
+    float d_term_roll = pid_roll.kd * (error_roll - pid_roll.lastError) / dt;
+    pid_out_roll = p_term_roll + (pid_roll.ki * pid_roll.integral) + d_term_roll;
+    pid_roll.lastError = error_roll;
+
+    // --- YAW ---
+    float error_yaw = (float)controlInput.yaw - gyro_z_ds;
+    float p_term_yaw = pid_yaw.kp * error_yaw;
+
+    pid_yaw.integral += error_yaw * dt;
+    if (pid_yaw.integral > 200.0f)  pid_yaw.integral = 200.0f;
+    if (pid_yaw.integral < -200.0f) pid_yaw.integral = -200.0f;
+
+    pid_out_yaw = p_term_yaw + (pid_yaw.ki * pid_yaw.integral);
 }
 
 /* USER CODE END 4 */
