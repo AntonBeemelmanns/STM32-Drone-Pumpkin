@@ -70,12 +70,13 @@ int16_t accel_x, accel_y, accel_z;	// Raw Data
 int16_t gyro_x, gyro_y, gyro_z;	// Raw Data
 
 float gyro_x_ds, gyro_y_ds, gyro_z_ds;	// Gyro rate of change per second
-float accel_pitch, accel_roll;	// calculated angles
-float filtered_pitch, filtered_roll;	// filtered angles
-
+float accel_pitch, accel_roll;	// Calculated angles
+float filtered_pitch, filtered_roll;	// Filtered angles
 
 float dt = 0.01f; // Duration of loop for angle integration
 
+
+// -- Define Debugging Variables --
 
 uint32_t debug_counter = 0;	// Determine debugging output rate
 
@@ -85,6 +86,8 @@ uint32_t debug_counter = 0;	// Determine debugging output rate
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+void Read_RF_Receiver(void);
+HAL_StatusTypeDef Read_IMU(void);
 
 /* USER CODE END PFP */
 
@@ -149,55 +152,19 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while(1)
   {
-	  // -- Receive data from receiver bridge --
-	  if(HAL_UART_Receive(&huart1, &incoming, 1, 0) == HAL_OK)
+	  // Read data from receiver bridge
+	  Read_RF_Receiver();
+
+	  // Read data from IMU
+	  if (Read_IMU() == HAL_OK)
 	  {
-	  	  // Collect data in line_buffer exept for end of line
-		  if (incoming != '\n' && incoming != '\r')
-	  	  {
-			  if (buffer_index < 63)	// Check for space in line_buffer
-			  {
-				  line_buffer[buffer_index++] = incoming;
-	  	  	  }
-	  	  }
+	      // PID controll loop
+	      //Calculate_PID();
 
-		  // Detect end of line
-	  	  if (incoming == '\n')
-	  	  {
-	  		  line_buffer[buffer_index] = '\0'; // Mark end of string
-	  	  	  HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);	// Toggle led to showcase received data
-
-	  	  	  buffer_index = 0;	// Reset buffer_index for next incoming data
-	  	  }
+	      // Controll Motors
+	      // Update_Motors();
 	  }
 
-	  // -- Receive data from IMU --
-	  if (HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10) == HAL_OK)
-	  {
-	      // Extract raw data from IMU
-		  accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
-	      accel_y = (int16_t)(buffer[2] << 8 | buffer[3]);
-	      accel_z = (int16_t)(buffer[4] << 8 | buffer[5]);
-	      gyro_x  = (int16_t)(buffer[8] << 8 | buffer[9]);
-	      gyro_y  = (int16_t)(buffer[10] << 8 | buffer[11]);
-	      gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
-
-	      // Convert raw values to physical unit -> Degrees/Second
-	      gyro_x_ds = gyro_x / 131.0f;
-	      gyro_y_ds = gyro_y / 131.0f;
-	      gyro_z_ds = gyro_z / 131.0f;
-
-	      // Calculate angle of pitch and roll from accelerometer and convert to degrees
-	      accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
-	      accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
-
-	      // Filter/Fuse values with complementary filter (tune here)
-	      filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
-	      filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
-
-	      // No absolute value for yaw, only rate of change from gyro is used
-	      // due to risk of integration error
-	  }
 
 	  // -- Debug Print (enable only when debugging!) --
 	  debug_counter++;
@@ -205,6 +172,7 @@ int main(void)
 	  {
 		  //printf(line_buffer);
 	  	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+
 	  	  debug_counter = 0;
 	  }
 
@@ -265,6 +233,82 @@ void SystemClock_Config(void)
 
 /* USER CODE BEGIN 4 */
 
+
+/**
+  * @brief  Reads control values from receiver bridge
+  * @retval None
+  */
+void Read_RF_Receiver(void)
+{
+	// -- Receive data from receiver bridge --
+	if(HAL_UART_Receive(&huart1, &incoming, 1, 0) == HAL_OK)
+	{
+		// Collect data in line_buffer exept for end of line
+		if (incoming != '\n' && incoming != '\r')
+	  	{
+			if (buffer_index < 63)	// Check for space in line_buffer
+			{
+				line_buffer[buffer_index++] = incoming;
+	  	  	}
+	  	}
+
+		// Detect end of line
+	  	if (incoming == '\n')
+	  	{
+	  		line_buffer[buffer_index] = '\0'; // Mark end of string
+	  	  	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);	// Toggle led to showcase received data
+
+	  	  	// Parsing to struct
+	  	  	sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd",
+	  	  	&controlInput.pitch,
+			&controlInput.roll,
+			&controlInput.yaw,
+			&controlInput.arm,
+			&controlInput.mode);
+
+	  	  	buffer_index = 0;	// Reset buffer_index for next incoming data
+	  	}
+	}
+}
+
+
+/**
+  * @brief  Reads data from IMU
+  * @retval Enum indicating success of reading IMU
+  */
+HAL_StatusTypeDef Read_IMU(void)
+{
+	// -- Receive data from IMU --
+    HAL_StatusTypeDef status = HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10);
+
+    if (status == HAL_OK)
+    {
+    	// Extract raw data from IMU
+		accel_x = (int16_t)(buffer[0] << 8 | buffer[1]);
+	    accel_y = (int16_t)(buffer[2] << 8 | buffer[3]);
+	    accel_z = (int16_t)(buffer[4] << 8 | buffer[5]);
+	    gyro_x  = (int16_t)(buffer[8] << 8 | buffer[9]);
+	    gyro_y  = (int16_t)(buffer[10] << 8 | buffer[11]);
+	    gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
+
+	    // Convert raw values to physical unit -> degrees/second
+	    gyro_x_ds = gyro_x / 131.0f;
+	    gyro_y_ds = gyro_y / 131.0f;
+	    gyro_z_ds = gyro_z / 131.0f;
+
+	    // Calculate angle of pitch and roll from accelerometer and convert to degrees
+	    accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
+	    accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
+
+	    // Filter/Fuse values with complementary filter (tune here)
+	    filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
+	    filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
+
+	    // No absolute value for yaw, only rate of change from gyro is used
+	    // due to risk of integration error
+    }
+    return status;
+}
 
 /* USER CODE END 4 */
 
