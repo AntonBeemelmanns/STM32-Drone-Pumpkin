@@ -56,13 +56,13 @@ uint8_t incoming;	// Stores incoming data from Receiver Bridge
 char line_buffer[64];	// Stores complete line from Receiver Bridge
 int buffer_index = 0;	// Index in line_buffer
 
-struct DataPacket {  // datatype for controll values
+struct {
     int16_t pitch;
     int16_t roll;
     int16_t yaw;
     int16_t arm;
     int16_t mode;
-}controlInput;
+}controlInput;	// Struct for control values
 
 // -- Define Variables for reading IMU --
 
