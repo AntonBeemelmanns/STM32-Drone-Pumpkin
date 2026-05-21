@@ -71,10 +71,14 @@ int16_t accel_x, accel_y, accel_z;	// Raw Data
 int16_t gyro_x, gyro_y, gyro_z;	// Raw Data
 
 float gyro_x_ds, gyro_y_ds, gyro_z_ds;	// Gyro rate of change per second
-float accel_pitch, accel_roll;	// Calculated angles
+float accel_pitch, accel_roll;	// Calibrated angles
+float raw_accel_pitch, raw_accel_roll;	// Calculated angles
 float filtered_pitch, filtered_roll;	// Filtered angles
 
 float dt = 0.01f; // Duration of loop for angle integration
+
+float gyro_x_offset = 0, gyro_y_offset = 0, gyro_z_offset = 0;	// Variables for IMU calibration
+float accel_pitch_offset = 0, accel_roll_offset = 0;
 
 // -- Define PID Variables --
 
@@ -110,6 +114,7 @@ void SystemClock_Config(void);
 void Read_RF_Receiver(void);
 HAL_StatusTypeDef Read_IMU(void);
 void Calculate_PID(void);
+void Calibrate_IMU(void);
 
 /* USER CODE END PFP */
 
@@ -165,12 +170,20 @@ int main(void)
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
+  // Initialize timer interrupt
+  HAL_TIM_Base_Start_IT(&htim6);
+
   // Initialize IMU
   uint8_t power_mgmt = 0;
   HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x6B, 1, &power_mgmt, 1, 100);
+  HAL_Delay(100);
 
-  // Initialize timer interrupt
-  HAL_TIM_Base_Start_IT(&htim6);
+  // Calibrate IMU
+  Calibrate_IMU();
+
+
+
+
 
   /* USER CODE END 2 */
 
@@ -266,6 +279,60 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
 }
 
+
+/**
+  * @brief  Calibrates IMU before taking flight
+  * @retval None
+  */
+void Calibrate_IMU(void)
+{
+	// --- Start calibration ---
+	printf("Calibrating IMU... Do not move Drone!\r\n");
+
+	float gyro_x_sum = 0, gyro_y_sum = 0, gyro_z_sum = 0;
+	float pitch_sum = 0, roll_sum = 0;
+	int samples = 500;
+
+	for (int i = 0; i < samples; i++)
+	{
+	    if (HAL_I2C_Mem_Read(&hi2c1, (0x68 << 1), 0x3B, 1, buffer, 14, 10) == HAL_OK)
+	    {
+	        // Extract raw data from IMU
+	        int16_t ax = (int16_t)(buffer[0] << 8 | buffer[1]);
+	        int16_t ay = (int16_t)(buffer[2] << 8 | buffer[3]);
+	        int16_t az = (int16_t)(buffer[4] << 8 | buffer[5]);
+	        int16_t gx = (int16_t)(buffer[8] << 8 | buffer[9]);
+	        int16_t gy = (int16_t)(buffer[10] << 8 | buffer[11]);
+	        int16_t gz = (int16_t)(buffer[12] << 8 | buffer[13]);
+
+	        // Sum gyro rates
+	        gyro_x_sum += gx / 131.0f;
+	        gyro_y_sum += gy / 131.0f;
+	        gyro_z_sum += gz / 131.0f;
+
+	        // Calculate uncorrected accelerometer angles for test
+	        float raw_pitch = atan2f((float)ay, (float)az) * 57.295f;
+	        float raw_roll  = atan2f(-(float)ax, sqrtf((float)ay * ay + (float)az * az)) * 57.295f;
+
+	        pitch_sum += raw_pitch;
+	        roll_sum += raw_roll;
+	    }
+	    HAL_Delay(2);
+	}
+
+	// Calculate average error
+	gyro_x_offset = gyro_x_sum / samples;
+	gyro_y_offset = gyro_y_sum / samples;
+	gyro_z_offset = gyro_z_sum / samples;
+
+	accel_pitch_offset = pitch_sum / samples;
+	accel_roll_offset  = roll_sum / samples;
+
+	printf("Calibration done! P_off: %.2f | R_off: %.2f\r\n", accel_pitch_offset, accel_roll_offset);
+	// --- End of calibration ---
+}
+
+
 /**
   * @brief  Reads control values from receiver bridge
   * @retval None
@@ -324,13 +391,17 @@ HAL_StatusTypeDef Read_IMU(void)
 	    gyro_z  = (int16_t)(buffer[12] << 8 | buffer[13]);
 
 	    // Convert raw values to physical unit -> degrees/second
-	    gyro_x_ds = gyro_x / 131.0f;
-	    gyro_y_ds = gyro_y / 131.0f;
-	    gyro_z_ds = gyro_z / 131.0f;
+	    gyro_x_ds = (gyro_x / 131.0f) - gyro_x_offset;
+	    gyro_y_ds = (gyro_y / 131.0f) - gyro_y_offset;
+	    gyro_z_ds = (gyro_z / 131.0f) - gyro_z_offset;
 
 	    // Calculate angle of pitch and roll from accelerometer and convert to degrees
-	    accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
-	    accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
+	    raw_accel_pitch = atan2f((float)accel_y, (float)accel_z) * 57.295f;
+	    raw_accel_roll  = atan2f(-(float)accel_x, sqrtf((float)accel_y * accel_y + (float)accel_z * accel_z)) * 57.295f;
+
+	    // Correct angle of pitch and roll with calibrated offset
+	    accel_pitch = raw_accel_pitch - accel_pitch_offset;
+	    accel_roll = raw_accel_roll - accel_roll_offset;
 
 	    // Filter/Fuse values with complementary filter (tune here)
 	    filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
