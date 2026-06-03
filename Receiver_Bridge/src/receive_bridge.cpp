@@ -87,6 +87,8 @@ void loop() {
         // read received data into dataPacket struct
         radio.read(&dataPacket, sizeof(DataPacket));
         
+        Serial.print("#");
+
         // output as CSV string via UART for the STM32
         Serial.print(dataPacket.pitch); Serial.print(",");
         Serial.print(dataPacket.roll);  Serial.print(",");

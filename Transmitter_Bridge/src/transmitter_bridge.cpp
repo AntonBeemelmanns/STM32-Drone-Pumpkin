@@ -106,7 +106,7 @@ void loop() {
 
             
             radio.write(&dataPacket, sizeof(DataPacket)); 
-            Serial.println("Data sent to drone!");
+            //Serial.println("Data sent to drone!");
         }
     }    
 }

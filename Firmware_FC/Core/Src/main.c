@@ -56,7 +56,7 @@ uint8_t incoming;	// Stores incoming data from Receiver Bridge
 char line_buffer[64];	// Stores complete line from Receiver Bridge
 int buffer_index = 0;	// Index in line_buffer
 
-struct {
+volatile struct {
     int16_t pitch;
     int16_t roll;
     int16_t yaw;
@@ -197,8 +197,8 @@ int main(void)
 	  // -- Debug Print (enable only when debugging!) --
 	  if (debug_counter >= 1)
 	  {
-		  //printf(line_buffer);
-	  	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+		  printf("%s\n", line_buffer);
+	  	  //printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
 
 	  	  debug_counter = 0;
 	  }
@@ -339,35 +339,69 @@ void Calibrate_IMU(void)
   */
 void Read_RF_Receiver(void)
 {
-	// -- Receive data from receiver bridge --
-	if(HAL_UART_Receive(&huart1, &incoming, 1, 0) == HAL_OK)
-	{
-		// Collect data in line_buffer exept for end of line
-		if (incoming != '\n' && incoming != '\r')
-	  	{
-			if (buffer_index < 63)	// Check for space in line_buffer
+	static uint8_t sync_detected = 0; // Merker, ob Zeilenanfang gefunden wurde
+
+		// PRÜFEN UND LÖSCHEN VON OVERRUN-FEHLERN (ORE) für STM32F4
+		// Verhindert, dass der UART nach einem Reset blockiert!
+		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
+			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_ORE);
+		}
+		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_NE)) {
+			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_NE);
+		}
+
+		// -- Receive data from receiver bridge --
+		// Timeout auf 1ms gesetzt, um Fragmente und Datenverlust zu vermeiden
+		if(HAL_UART_Receive(&huart1, &incoming, 1, 1) == HAL_OK)
+		{
+			// Wenn das Startzeichen kommt, loeschen wir den Puffer und starten frisch
+			if (incoming == '#')
 			{
-				line_buffer[buffer_index++] = incoming;
-	  	  	}
-	  	}
+				buffer_index = 0;
+				sync_detected = 1;
+				return; // Das '#' selbst nicht in den Puffer schreiben
+			}
 
-		// Detect end of line
-	  	if (incoming == '\n')
-	  	{
-	  		line_buffer[buffer_index] = '\0'; // Mark end of string
-	  	  	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);	// Toggle led to showcase received data
+			// Wir lesen nur mit, wenn wir vorher ein '#' gesehen haben!
+			if (sync_detected)
+			{
+				if (incoming == '\n')
+				{
+					if (buffer_index > 0)
+					{
+						line_buffer[buffer_index] = '\0'; // String sauber beenden
 
-	  	  	// Parsing to struct
-	  	  	sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd",
-	  	  	&controlInput.pitch,
-			&controlInput.roll,
-			&controlInput.yaw,
-			&controlInput.arm,
-			&controlInput.mode);
+						// Prüfen, ob wirklich alle 5 Werte sauber gelesen werden konnten
+						int parsed = sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd",
+											(int16_t*)&controlInput.pitch,
+											(int16_t*)&controlInput.roll,
+											(int16_t*)&controlInput.yaw,
+											(int16_t*)&controlInput.arm,
+											(int16_t*)&controlInput.mode);
 
-	  	  	buffer_index = 0;	// Reset buffer_index for next incoming data
-	  	}
-	}
+						// Nur bei perfektem Paket (alle 5 Werte gefunden) die LED toggeln
+						if (parsed == 5)
+						{
+							HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+						}
+					}
+					buffer_index = 0;
+					sync_detected = 0; // Auf das naechste '#' warten
+				}
+				else if (incoming != '\r') // Normales Zeichen einlesen
+				{
+					if (buffer_index < 62) // Schutz vor Überlauf (Platz für \0 lassen)
+					{
+						line_buffer[buffer_index++] = incoming;
+					}
+					else
+					{
+						buffer_index = 0;
+						sync_detected = 0; // Puffer voll ohne '\n' -> Reset
+					}
+				}
+			}
+		}
 }
 
 
