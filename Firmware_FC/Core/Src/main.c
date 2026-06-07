@@ -197,7 +197,6 @@ int main(void)
 	  // -- Debug Print (enable only when debugging!) --
 	  if (debug_counter >= 1)
 	  {
-		  printf("%s\n", line_buffer);
 	  	  //printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
 
 	  	  debug_counter = 0;
@@ -339,10 +338,10 @@ void Calibrate_IMU(void)
   */
 void Read_RF_Receiver(void)
 {
-	static uint8_t sync_detected = 0; // Merker, ob Zeilenanfang gefunden wurde
+	static uint8_t sync_detected = 0; // Flag for finding a new line
 
-		// PRÜFEN UND LÖSCHEN VON OVERRUN-FEHLERN (ORE) für STM32F4
-		// Verhindert, dass der UART nach einem Reset blockiert!
+		// Check for and delete OverRunErrors
+		// Prevt UART blocking after reset
 		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
 			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_ORE);
 		}
@@ -350,28 +349,27 @@ void Read_RF_Receiver(void)
 			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_NE);
 		}
 
-		// -- Receive data from receiver bridge --
-		// Timeout auf 1ms gesetzt, um Fragmente und Datenverlust zu vermeiden
+		// Receive data from receiver bridge
 		if(HAL_UART_Receive(&huart1, &incoming, 1, 1) == HAL_OK)
 		{
-			// Wenn das Startzeichen kommt, loeschen wir den Puffer und starten frisch
+			// Delete buffer when new line is detected
 			if (incoming == '#')
 			{
 				buffer_index = 0;
 				sync_detected = 1;
-				return; // Das '#' selbst nicht in den Puffer schreiben
+				return; // To leave out the '#'
 			}
 
-			// Wir lesen nur mit, wenn wir vorher ein '#' gesehen haben!
+			// Read input only when flag is set
 			if (sync_detected)
 			{
 				if (incoming == '\n')
 				{
 					if (buffer_index > 0)
 					{
-						line_buffer[buffer_index] = '\0'; // String sauber beenden
+						line_buffer[buffer_index] = '\0'; // End of String
 
-						// Prüfen, ob wirklich alle 5 Werte sauber gelesen werden konnten
+						// Check if parsing from input worked
 						int parsed = sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd",
 											(int16_t*)&controlInput.pitch,
 											(int16_t*)&controlInput.roll,
@@ -379,25 +377,26 @@ void Read_RF_Receiver(void)
 											(int16_t*)&controlInput.arm,
 											(int16_t*)&controlInput.mode);
 
-						// Nur bei perfektem Paket (alle 5 Werte gefunden) die LED toggeln
+						// For debugging purposes
 						if (parsed == 5)
 						{
 							HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+							printf("%s\n", line_buffer);
 						}
 					}
 					buffer_index = 0;
-					sync_detected = 0; // Auf das naechste '#' warten
+					sync_detected = 0; // Wait for the next '#'
 				}
-				else if (incoming != '\r') // Normales Zeichen einlesen
+				else if (incoming != '\r')
 				{
-					if (buffer_index < 62) // Schutz vor Überlauf (Platz für \0 lassen)
+					if (buffer_index < 62) // Protect buffer from over running
 					{
 						line_buffer[buffer_index++] = incoming;
 					}
 					else
 					{
 						buffer_index = 0;
-						sync_detected = 0; // Puffer voll ohne '\n' -> Reset
+						sync_detected = 0; // Buffer is full with no '\n' -> reset
 					}
 				}
 			}
