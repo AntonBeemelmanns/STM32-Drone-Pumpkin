@@ -2,7 +2,7 @@
 /**
   ******************************************************************************
   * @file           : main.c
-  * @brief          : Main program body
+  * @brief          : Firmware for a quadrocopter drone flight controller
   ******************************************************************************
   * @attention
   *
@@ -64,6 +64,11 @@ volatile struct {
     int16_t mode;
 }controlInput;	// Struct for control values
 
+// Flag and toggle variable for arm/idel mode
+volatile uint8_t is_armed = 0;
+int16_t last_arm_input = 0;
+
+
 // -- Define Variables for reading IMU --
 
 uint8_t buffer[14];	// Stores incoming data from IMU
@@ -115,6 +120,7 @@ void Read_RF_Receiver(void);
 HAL_StatusTypeDef Read_IMU(void);
 void Calculate_PID(void);
 void Calibrate_IMU(void);
+void Update_Motors(void);
 
 /* USER CODE END PFP */
 
@@ -168,6 +174,7 @@ int main(void)
   MX_USART2_UART_Init();
   MX_I2C1_Init();
   MX_TIM6_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
   // Initialize timer interrupt
@@ -181,9 +188,11 @@ int main(void)
   // Calibrate IMU
   Calibrate_IMU();
 
-
-
-
+  // Initialize channels for PMW for ESC
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
+  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
 
   /* USER CODE END 2 */
 
@@ -272,6 +281,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         {
             // Calculate PID value for motor control
             Calculate_PID();
+
+            // Send value to ESC
+            Update_Motors();
 
             debug_counter++;
         }
@@ -381,7 +393,23 @@ void Read_RF_Receiver(void)
 						if (parsed == 5)
 						{
 							HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
-							printf("%s\n", line_buffer);
+
+							// Toggle logic for arm mode
+							if (controlInput.arm == 1 && last_arm_input == 0)
+							{
+								if (is_armed == 0)
+								{
+									is_armed = 1;
+								}
+								else
+								{
+									is_armed = 0;
+								}
+							}
+							last_arm_input = controlInput.arm;
+
+							// Pass values to Serial for debugging, turn off for flight performance
+							printf("%s, is_armed: %d\n", line_buffer, is_armed);
 						}
 					}
 					buffer_index = 0;
@@ -486,6 +514,47 @@ void Calculate_PID(void)
     if (pid_yaw.integral < -200.0f) pid_yaw.integral = -200.0f;
 
     pid_out_yaw = p_term_yaw + (pid_yaw.ki * pid_yaw.integral);
+}
+
+/**
+  * @brief  Mixes PID Values with throttle and writes values to ESC
+  * @retval None
+  */
+void Update_Motors(void)
+{
+	// Rotors are turning but no flight
+	int16_t throttle = 1150;
+
+	// Check if rotors are allowed to turn
+	if (is_armed == 0)
+	{
+		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 1000);
+	    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, 1000);
+	    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, 1000);
+	    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, 1000);
+	    return; // Exit function
+	}
+
+	// --- Motor mixing ---
+
+	// PID corrections are mixed with base throttle
+	int16_t m1 = throttle + pid_out_pitch - pid_out_roll - pid_out_yaw; // Front Left (CW)
+	int16_t m2 = throttle + pid_out_pitch + pid_out_roll + pid_out_yaw; // Front Right (CCW)
+	int16_t m3 = throttle - pid_out_pitch - pid_out_roll + pid_out_yaw; // Rear Left (CCW)
+	int16_t m4 = throttle - pid_out_pitch + pid_out_roll - pid_out_yaw; // Rear Right (CW)
+
+	// Output Cap
+	// Keep values inbetween 1000 and 2000 µs PMW
+	if (m1 < 1000) m1 = 1000; if (m1 > 2000) m1 = 2000;
+	if (m2 < 1000) m2 = 1000; if (m2 > 2000) m2 = 2000;
+	if (m3 < 1000) m3 = 1000; if (m3 > 2000) m3 = 2000;
+	if (m4 < 1000) m4 = 1000; if (m4 > 2000) m4 = 2000;
+
+	// Write to registers of tim3
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, m1);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_2, m2);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_3, m3);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_4, m4);
 }
 
 /* USER CODE END 4 */
