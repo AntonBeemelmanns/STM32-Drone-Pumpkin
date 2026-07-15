@@ -57,11 +57,11 @@ char line_buffer[64];	// Stores complete line from Receiver Bridge
 int buffer_index = 0;	// Index in line_buffer
 
 volatile struct {
+	int16_t throttle;
     int16_t pitch;
     int16_t roll;
     int16_t yaw;
     int16_t arm;
-    int16_t mode;
 }controlInput;	// Struct for control values
 
 // Flag and toggle variable for arm/idel mode
@@ -121,6 +121,7 @@ HAL_StatusTypeDef Read_IMU(void);
 void Calculate_PID(void);
 void Calibrate_IMU(void);
 void Update_Motors(void);
+void ESC_init(void);
 
 /* USER CODE END PFP */
 
@@ -177,8 +178,8 @@ int main(void)
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
-  // Initialize timer interrupt
-  HAL_TIM_Base_Start_IT(&htim6);
+  // Initialize ESC
+  ESC_init();
 
   // Initialize IMU
   uint8_t power_mgmt = 0;
@@ -188,11 +189,9 @@ int main(void)
   // Calibrate IMU
   Calibrate_IMU();
 
-  // Initialize channels for PMW for ESC
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_2);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_3);
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_4);
+  // Initialize timer interrupt
+  HAL_TIM_Base_Start_IT(&htim6);
+
 
   /* USER CODE END 2 */
 
@@ -202,6 +201,7 @@ int main(void)
   {
 	  // Read data from receiver bridge
 	  Read_RF_Receiver();
+
 
 	  // -- Debug Print (enable only when debugging!) --
 	  if (debug_counter >= 1)
@@ -290,6 +290,44 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
     }
 }
 
+/**
+  * @brief  Initializes electronic speed controller
+  * @retval None
+  */
+void ESC_init(void)
+{
+	// Stop the Timer
+	TIM3->CR1 &= ~TIM_CR1_CEN;
+
+	// Configure Prescaler and Auto Reload Period (equals to 400Hz and 2.5ms)
+	TIM3->PSC = 83;
+	TIM3->ARR = 2449;
+
+	// Set to {WM Mode 1 and Preload
+	TIM3->CCMR1 = (0x60U << 0) | (0x08U << 0)  | (0x60U << 8) | (0x08U << 8); // CH1 & CH2
+	TIM3->CCMR2 = (0x60U << 0) | (0x08U << 0)  | (0x60U << 8) | (0x08U << 8); // CH3 & CH4
+
+	// Polarity to Active High and arm output
+
+	TIM3->CCER &= ~(TIM_CCER_CC1P | TIM_CCER_CC2P | TIM_CCER_CC3P | TIM_CCER_CC4P);
+	TIM3->CCER |= (TIM_CCER_CC1E | TIM_CCER_CC2E | TIM_CCER_CC3E | TIM_CCER_CC4E);
+
+	// Initialize channels with pulse width of 950us
+	TIM3->CCR1 = 950;
+	TIM3->CCR2 = 950;
+	TIM3->CCR3 = 950;
+	TIM3->CCR4 = 950;
+
+	// Reset and start
+	TIM3->EGR |= TIM_EGR_UG;
+	TIM3->CNT = 0;
+	TIM3->CR1 |= TIM_CR1_CEN;
+
+	printf("Initialized ESC...\n");
+
+	// Time buffer 2.5s
+	HAL_Delay(2500);
+}
 
 /**
   * @brief  Calibrates IMU before taking flight
@@ -387,7 +425,7 @@ void Read_RF_Receiver(void)
 											(int16_t*)&controlInput.roll,
 											(int16_t*)&controlInput.yaw,
 											(int16_t*)&controlInput.arm,
-											(int16_t*)&controlInput.mode);
+											(int16_t*)&controlInput.throttle);
 
 						// For debugging purposes
 						if (parsed == 5)
@@ -522,10 +560,7 @@ void Calculate_PID(void)
   */
 void Update_Motors(void)
 {
-	// Rotors are turning but no flight
-	int16_t throttle = 1150;
-
-	// Check if rotors are allowed to turn
+	// Check if motors are allowed to turn
 	if (is_armed == 0)
 	{
 		__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 1000);
@@ -537,11 +572,11 @@ void Update_Motors(void)
 
 	// --- Motor mixing ---
 
-	// PID corrections are mixed with base throttle
-	int16_t m1 = throttle + pid_out_pitch - pid_out_roll - pid_out_yaw; // Front Left (CW)
-	int16_t m2 = throttle + pid_out_pitch + pid_out_roll + pid_out_yaw; // Front Right (CCW)
-	int16_t m3 = throttle - pid_out_pitch - pid_out_roll + pid_out_yaw; // Rear Left (CCW)
-	int16_t m4 = throttle - pid_out_pitch + pid_out_roll - pid_out_yaw; // Rear Right (CW)
+	// PID corrections are mixed with base throttle / Props-out
+	int16_t m1 = controlInput.throttle + pid_out_pitch - pid_out_roll + pid_out_yaw; // Front Left (CCW)
+	int16_t m2 = controlInput.throttle + pid_out_pitch + pid_out_roll - pid_out_yaw; // Front Right (CW)
+	int16_t m3 = controlInput.throttle - pid_out_pitch - pid_out_roll - pid_out_yaw; // Rear Left (CW)
+	int16_t m4 = controlInput.throttle - pid_out_pitch + pid_out_roll + pid_out_yaw; // Rear Right (CCW)
 
 	// Output Cap
 	// Keep values inbetween 1000 and 2000 µs PMW

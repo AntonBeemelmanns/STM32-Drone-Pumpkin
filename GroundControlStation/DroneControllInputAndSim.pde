@@ -3,8 +3,8 @@
  * Visualizes remote control inputs in a 3D environment and passes control string to serial port.
  * Uses GameControlPlus for HID interfacing and P3D for rendering.
  * @author  Anton Beemelmanns
- * @version 1.3
- * @date    2026-05-11
+ * @version 1.4
+ * @date    2026-07-15
  */
 
 import org.gamecontrolplus.*;
@@ -16,7 +16,7 @@ ControlIO control;
 ControlDevice device;
 
 // --- Control Variables ---
-float pitch, roll, yaw;
+float pitch, roll, yaw, throttle;
 float threshold = 0.2;   // Deadzone for joystick to prevent stickdrift influence
 boolean killSwitch = false; // Safety switch to kill motors until restart
 
@@ -32,7 +32,7 @@ void setup(){
   
   if(ports.length > 0){
     try{
-      String portName = Serial.list()[1];
+      String portName = Serial.list()[0];
       myPort = new Serial(this, portName, 115200);
       println("Serial Port " + portName + " opened successfully.");
     }
@@ -63,7 +63,7 @@ void setup(){
 void draw(){
   // visualize background
   if (killSwitch){
-    background(100, 0, 0); // Dunkelrot signalisiert: System gesperrt
+    background(100, 0, 0); 
   } 
   else{
     background(20);
@@ -75,6 +75,7 @@ void draw(){
   float rawP = device.getSlider("pitch").getValue();
   float rawR = device.getSlider("roll").getValue();
   float rawY = device.getSlider("yaw").getValue();
+  float rawT = device.getSlider("throttle").getValue();
   
   // Apply deadzone and scaling (max tilt is 45 degrees)
   if(abs(rawP) > threshold){
@@ -97,6 +98,12 @@ void draw(){
   else{
     yaw = 0;
   }
+  
+  // map throttle to PWM and constrain
+  throttle = map(rawT, -1.0, 1.0, 1160, 1850);
+  
+  if (throttle < 1160) throttle = 1160;
+  if (throttle > 1850) throttle = 1850;
   
   renderAnimation();
   
@@ -166,13 +173,9 @@ void sendData() {
     
     // read arm-button and mode-switch
     int arm = 0;
-    int mode = 0;
     
     if(device.getButton("arm_button").pressed()){
       arm = 1;
-    }
-    if(device.getButton("mode_switch").pressed()){
-      mode = 1;
     }
     
     // dont send data to port if no device connected
@@ -181,7 +184,7 @@ void sendData() {
     }
     
     // Output string to serial port
-    String dataString = str(int(pitch)) + "," + str(int(roll)) + "," + str(int(yaw)) + "," + str(arm) + "," + str(mode) + "\n";
+    String dataString = str(int(pitch)) + "," + str(int(roll)) + "," + str(int(yaw)) + "," + str(arm) + "," + str(int(throttle)) + "\n";
     println(dataString);
     myPort.write(dataString);
 }
