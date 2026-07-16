@@ -96,9 +96,9 @@ struct PID_Config {
 };
 
 // Tuning values for coefficients
-struct PID_Config pid_pitch = {1.2f, 0.05f, 0.1f, 0.0f, 0.0f};
-struct PID_Config pid_roll  = {1.2f, 0.05f, 0.1f, 0.0f, 0.0f};
-struct PID_Config pid_yaw   = {2.0f, 0.02f, 0.0f, 0.0f, 0.0f};
+struct PID_Config pid_pitch = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
+struct PID_Config pid_roll  = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
+struct PID_Config pid_yaw   = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 
 // Output values for ESC
 volatile float pid_out_pitch = 0.0f;
@@ -186,6 +186,11 @@ int main(void)
   HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x6B, 1, &power_mgmt, 1, 100);
   HAL_Delay(100);
 
+  // Activate MPU6050's DLPF and set to 4 -> cutoff at 20 Hz
+  uint8_t dlpf_config = 4;
+  HAL_I2C_Mem_Write(&hi2c1, (0x68 << 1), 0x1A, 1, &dlpf_config, 1, 100);
+  HAL_Delay(10);
+
   // Calibrate IMU
   Calibrate_IMU();
 
@@ -206,7 +211,7 @@ int main(void)
 	  // -- Debug Print (enable only when debugging!) --
 	  if (debug_counter >= 1)
 	  {
-	  	  //printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+	  	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
 
 	  	  debug_counter = 0;
 	  }
@@ -447,7 +452,7 @@ void Read_RF_Receiver(void)
 							last_arm_input = controlInput.arm;
 
 							// Pass values to Serial for debugging, turn off for flight performance
-							printf("%s, is_armed: %d\n", line_buffer, is_armed);
+							//printf("%s, is_armed: %d\n", line_buffer, is_armed);
 						}
 					}
 					buffer_index = 0;
@@ -503,8 +508,8 @@ HAL_StatusTypeDef Read_IMU(void)
 	    accel_roll = raw_accel_roll - accel_roll_offset;
 
 	    // Filter/Fuse values with complementary filter (tune here)
-	    filtered_pitch = 0.996f * (filtered_pitch + gyro_x_ds * dt) + 0.004f * accel_pitch;
-	    filtered_roll  = 0.996f * (filtered_roll  + gyro_y_ds * dt) + 0.004f * accel_roll;
+	    filtered_pitch = 0.98f * (filtered_pitch + gyro_x_ds * dt) + 0.02f * accel_pitch;
+	    filtered_roll  = 0.98f * (filtered_roll  + gyro_y_ds * dt) + 0.02f * accel_roll;
 
 	    // No absolute value for yaw, only rate of change from gyro is used
 	    // due to risk of integration error
