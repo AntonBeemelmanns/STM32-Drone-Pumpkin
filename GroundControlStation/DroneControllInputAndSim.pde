@@ -100,10 +100,10 @@ void draw(){
   }
   
   // map throttle to PWM and constrain
-  throttle = map(rawT, -1.0, 1.0, 1200, 1650);
+  throttle = map(rawT, -1.0, 1.0, 1200, 1500);
   
   if (throttle < 1200) throttle = 1200;
-  if (throttle > 1650) throttle = 1650;
+  if (throttle > 1500) throttle = 1500;
   
   renderAnimation();
   
