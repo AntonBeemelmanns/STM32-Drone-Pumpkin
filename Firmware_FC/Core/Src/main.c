@@ -96,7 +96,7 @@ struct PID_Config {
 };
 
 // Tuning values for coefficients
-struct PID_Config pid_pitch = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
+struct PID_Config pid_pitch = {2.2f, 0.2f, 0.5f, 0.0f, 0.0f};
 struct PID_Config pid_roll  = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 struct PID_Config pid_yaw   = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 
@@ -524,6 +524,27 @@ HAL_StatusTypeDef Read_IMU(void)
   */
 void Calculate_PID(void)
 {
+	// Prevent I-term windup during start
+	if (is_armed == 0)
+	{
+	    // Delete PID-Memory
+	    pid_pitch.integral = 0.0f;
+	    pid_pitch.lastError = 0.0f;
+
+	    pid_roll.integral = 0.0f;
+	    pid_roll.lastError = 0.0f;
+
+	    pid_yaw.integral = 0.0f;
+	    pid_yaw.lastError = 0.0f;
+
+	    // PID-Outputs to zero
+	    pid_out_pitch = 0.0f;
+	    pid_out_roll  = 0.0f;
+	    pid_out_yaw   = 0.0f;
+
+	    return;
+	}
+
     // --- Pitch ---
     float error_pitch = (float)controlInput.pitch - filtered_pitch;
     float p_term_pitch = pid_pitch.kp * error_pitch;
