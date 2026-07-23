@@ -96,7 +96,7 @@ struct PID_Config {
 };
 
 // Tuning values for coefficients
-struct PID_Config pid_pitch = {2.2f, 0.2f, 0.5f, 0.0f, 0.0f};
+struct PID_Config pid_pitch = {2.25f, 0.15f, 0.49f, 0.0f, 0.0f};
 struct PID_Config pid_roll  = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 struct PID_Config pid_yaw   = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 
@@ -211,7 +211,7 @@ int main(void)
 	  // -- Debug Print (enable only when debugging!) --
 	  if (debug_counter >= 1)
 	  {
-	  	  printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
+	  	  //printf("IMU:%.2f,%.2f,%.2f\n", filtered_pitch, filtered_roll, gyro_z_ds);
 
 	  	  debug_counter = 0;
 	  }
@@ -508,8 +508,8 @@ HAL_StatusTypeDef Read_IMU(void)
 	    accel_roll = raw_accel_roll - accel_roll_offset;
 
 	    // Filter/Fuse values with complementary filter (tune here)
-	    filtered_pitch = 0.98f * (filtered_pitch + gyro_x_ds * dt) + 0.02f * accel_pitch;
-	    filtered_roll  = 0.98f * (filtered_roll  + gyro_y_ds * dt) + 0.02f * accel_roll;
+	    filtered_pitch = 0.995f * (filtered_pitch + gyro_x_ds * dt) + 0.005f * accel_pitch;
+	    filtered_roll  = 0.995f * (filtered_roll  + gyro_y_ds * dt) + 0.005f * accel_roll;
 
 	    // No absolute value for yaw, only rate of change from gyro is used
 	    // due to risk of integration error
@@ -606,10 +606,10 @@ void Update_Motors(void)
 
 	// Output Cap
 	// Keep values inbetween 1000 and 2000 µs PMW
-	if (m1 < 1000) m1 = 1000; if (m1 > 2000) m1 = 2000;
-	if (m2 < 1000) m2 = 1000; if (m2 > 2000) m2 = 2000;
-	if (m3 < 1000) m3 = 1000; if (m3 > 2000) m3 = 2000;
-	if (m4 < 1000) m4 = 1000; if (m4 > 2000) m4 = 2000;
+	if (m1 < 1180) m1 = 1180; if (m1 > 2000) m1 = 2000;
+	if (m2 < 1180) m2 = 1180; if (m2 > 2000) m2 = 2000;
+	if (m3 < 1180) m3 = 1180; if (m3 > 2000) m3 = 2000;
+	if (m4 < 1180) m4 = 1180; if (m4 > 2000) m4 = 2000;
 
 	// Write to registers of tim3
 	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, m1);
