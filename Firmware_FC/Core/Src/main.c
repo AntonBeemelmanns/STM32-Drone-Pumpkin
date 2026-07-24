@@ -96,8 +96,8 @@ struct PID_Config {
 };
 
 // Tuning values for coefficients
-struct PID_Config pid_pitch = {2.25f, 0.15f, 0.49f, 0.0f, 0.0f};
-struct PID_Config pid_roll  = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
+struct PID_Config pid_pitch = {2.25f, 0.0f, 0.49f, 0.0f, 0.0f};
+struct PID_Config pid_roll  = {2.25f, 0.00f, 0.49f, 0.0f, 0.0f};
 struct PID_Config pid_yaw   = {0.0f, 0.00f, 0.0f, 0.0f, 0.0f};
 
 // Output values for ESC
@@ -393,85 +393,104 @@ void Calibrate_IMU(void)
   */
 void Read_RF_Receiver(void)
 {
-	static uint8_t sync_detected = 0; // Flag for finding a new line
+	// Temporary values for sanity check
+	int16_t temp_pitch, temp_roll, temp_yaw, temp_arm, temp_throttle;
 
-		// Check for and delete OverRunErrors
-		// Prevt UART blocking after reset
-		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
-			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_ORE);
-		}
-		if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_NE)) {
-			__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_NE);
-		}
+	// Flag for finding a new line
+	static uint8_t sync_detected = 0;
 
-		// Receive data from receiver bridge
-		if(HAL_UART_Receive(&huart1, &incoming, 1, 1) == HAL_OK)
+
+	// Check for and delete OverRunErrors
+	// Prevt UART blocking after reset
+	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_ORE)) {
+		__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_ORE);
+	}
+	if (__HAL_UART_GET_FLAG(&huart1, UART_FLAG_NE)) {
+		__HAL_UART_CLEAR_FLAG(&huart1, UART_FLAG_NE);
+	}
+
+	// Receive data from receiver bridge
+	if(HAL_UART_Receive(&huart1, &incoming, 1, 1) == HAL_OK)
+	{
+		// Delete buffer when new line is detected
+		if (incoming == '#')
 		{
-			// Delete buffer when new line is detected
-			if (incoming == '#')
-			{
-				buffer_index = 0;
-				sync_detected = 1;
-				return; // To leave out the '#'
-			}
+			buffer_index = 0;
+			sync_detected = 1;
+			return; // To leave out the '#'
+		}
 
-			// Read input only when flag is set
-			if (sync_detected)
+		// Read input only when flag is set
+		if (sync_detected)
+		{
+			if (incoming == '\n')
 			{
-				if (incoming == '\n')
+				if (buffer_index > 0)
 				{
-					if (buffer_index > 0)
+					line_buffer[buffer_index] = '\0'; // End of String
+
+					// Check if parsing from input worked
+					int parsed = sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd", &temp_pitch, &temp_roll, &temp_yaw, &temp_arm, &temp_throttle);
+
+					// For debugging purposes
+					if (parsed == 5)
 					{
-						line_buffer[buffer_index] = '\0'; // End of String
+						HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
 
-						// Check if parsing from input worked
-						int parsed = sscanf(line_buffer, "%hd,%hd,%hd,%hd,%hd",
-											(int16_t*)&controlInput.pitch,
-											(int16_t*)&controlInput.roll,
-											(int16_t*)&controlInput.yaw,
-											(int16_t*)&controlInput.arm,
-											(int16_t*)&controlInput.throttle);
 
-						// For debugging purposes
-						if (parsed == 5)
+						// --- SANITY CHECK ---
+						// Check if input makes sense
+						if (temp_pitch >= -45 && temp_pitch <= 45 &&
+						    temp_roll >= -45 && temp_roll <= 45 &&
+						    temp_throttle >= 1000 && temp_throttle <= 2000)
 						{
-							HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_5);
+						    // Values make sense, write to control struct
+						    controlInput.pitch = temp_pitch;
+						    controlInput.roll = temp_roll;
+						    controlInput.yaw = temp_yaw;
+						    controlInput.arm = temp_arm;
+						    controlInput.throttle = temp_throttle;
 
-							// Toggle logic for arm mode
-							if (controlInput.arm == 1 && last_arm_input == 0)
-							{
-								if (is_armed == 0)
-								{
-									is_armed = 1;
-								}
-								else
-								{
-									is_armed = 0;
-								}
-							}
-							last_arm_input = controlInput.arm;
-
-							// Pass values to Serial for debugging, turn off for flight performance
-							//printf("%s, is_armed: %d\n", line_buffer, is_armed);
+						    // Toggle logic for arm mode
+						    if (controlInput.arm == 1 && last_arm_input == 0)
+						    {
+						    	if (is_armed == 0)
+						    	{
+						        	is_armed = 1;
+						        }
+						        else
+						        {
+						        	is_armed = 0;
+						        }
+						    }
+						    last_arm_input = controlInput.arm;
 						}
+						else
+						{
+						    // Values are not legit, throw away
+						}
+
+						// Pass values to Serial for debugging, turn off for flight performance
+						//printf("%s, is_armed: %d\n", line_buffer, is_armed);
 					}
-					buffer_index = 0;
-					sync_detected = 0; // Wait for the next '#'
 				}
-				else if (incoming != '\r')
+				buffer_index = 0;
+				sync_detected = 0; // Wait for the next '#'
+			}
+			else if (incoming != '\r')
+			{
+				if (buffer_index < 62) // Protect buffer from over running
 				{
-					if (buffer_index < 62) // Protect buffer from over running
-					{
-						line_buffer[buffer_index++] = incoming;
-					}
-					else
-					{
-						buffer_index = 0;
-						sync_detected = 0; // Buffer is full with no '\n' -> reset
-					}
+					line_buffer[buffer_index++] = incoming;
+				}
+				else
+				{
+					buffer_index = 0;
+					sync_detected = 0; // Buffer is full with no '\n' -> reset
 				}
 			}
 		}
+	}
 }
 
 
